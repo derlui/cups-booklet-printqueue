@@ -292,11 +292,13 @@ COPIES="$4"
 OPTIONS="$5"
 FILENAME="${6:-}"
 
-DEST="${DEVICE_URI#booklet://}"
-if [ -z "$DEST" ]; then
+ENCODED_DEST="${DEVICE_URI#booklet://}"
+if [ -z "$ENCODED_DEST" ]; then
     echo "ERROR: DEVICE_URI not set or missing target queue" >&2
     exit 1
 fi
+# Percent-decode the queue name (handles umlauts and other non-ASCII characters)
+DEST=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$ENCODED_DEST")
 
 # Strip options that must not be forwarded or that we override
 # sides: we force our own; others would double-apply filter-level settings
@@ -340,6 +342,11 @@ install_deps() {
 # Printer selection
 # ---------------------------------------------------------------------------
 
+# Percent-encode a string for use in a URI (encodes non-ASCII and reserved chars)
+uri_encode() {
+  python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
+}
+
 detect_printers() {
   lpstat -p 2>/dev/null | awk '{print $2}' | grep -v "^${PREFIX}" || true
 }
@@ -377,8 +384,9 @@ select_printers() {
         idx=$((part - 1))
         if [[ $idx -ge 0 && $idx -lt ${#DETECTED[@]} ]]; then
           name="${DETECTED[$idx]}"
+          encoded=$(uri_encode "$name")
           SELECTED_NAMES+=("$name")
-          SELECTED_URIS+=("booklet://${name}")
+          SELECTED_URIS+=("booklet://${encoded}")
           info "Selected: $name"
         else
           echo "  Warning: number $part is out of range, skipping."
@@ -387,8 +395,9 @@ select_printers() {
         name="${part%/}"
         name="${name##*/}"
         name="${name// /_}"
+        encoded=$(uri_encode "$name")
         SELECTED_NAMES+=("$name")
-        SELECTED_URIS+=("booklet://${name}")
+        SELECTED_URIS+=("booklet://${encoded}")
         info "Selected URI: $part (queue name: $name)"
       else
         echo "  Warning: '$part' is not a valid number or URI, skipping."
